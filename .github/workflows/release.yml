@@ -1,0 +1,60 @@
+name: Release WASM-4 Pakz
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ubuntu-26.04-arm
+    container: ghcr.io/loveretro/${{ matrix.target }}-toolchain:main
+    strategy:
+      matrix:
+        target:
+          - tg5040
+          - tg5050
+          - my355
+          - h700
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Clone WASM-4
+        run: git clone --branch v2.7.1 --single-branch --recursive https://github.com/aduros/wasm4.git
+      - name: Build
+        working-directory: ./wasm4/runtimes/native
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target wasm4_libretro
+          aarch64-nextui-linux-gnu-strip --strip-unneeded build/wasm4_libretro.so
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
+        with:
+          name: artifact-${{ matrix.target }}
+          path: wasm4/runtimes/native/build/wasm4_libretro.so
+  release:
+    name: Release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+      - name: Create Package
+        run: |
+          for target in tg5040 tg5050 my355 h700; do
+            directory="Emus/$target/WASM.pak"
+            mkdir -p "$directory"
+            cp default.cfg launch.sh "artifact-$target/wasm4_libretro.so" "$directory"
+          done
+          zip -r WASM.pakz Emus
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: WASM.pakz
